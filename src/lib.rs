@@ -1,7 +1,7 @@
-use pgx::prelude::*;
-use pgx::{JsonB};
-use serde_json::json;
 use crate::parser::parse;
+use pgx::prelude::*;
+use pgx::JsonB;
+use serde_json::json;
 
 pgx::pg_module_magic!();
 
@@ -34,7 +34,6 @@ mod tests {
             json!(crate::logfmt_to_jsonb(logline))
         );
     }
-
 }
 
 /// This module is required by `cargo pgx test` invocations.
