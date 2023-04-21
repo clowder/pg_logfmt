@@ -1,5 +1,0 @@
-comment = 'logfmt_to_jsonb:  Created by pgx'
-default_version = '@CARGO_VERSION@'
-module_pathname = '$libdir/logfmt_to_jsonb'
-relocatable = false
-superuser = false

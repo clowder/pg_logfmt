@@ -1,0 +1,5 @@
+comment = 'pg_logfmt'
+default_version = '@CARGO_VERSION@'
+module_pathname = '$libdir/pg_logfmt'
+relocatable = false
+superuser = false

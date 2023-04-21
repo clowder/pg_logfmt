@@ -1,5 +1,5 @@
 [package]
-name = "logfmt_to_jsonb"
+name = "pg_logfmt"
 version = "0.0.0"
 edition = "2021"
 
