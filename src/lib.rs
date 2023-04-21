@@ -51,10 +51,11 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_parsing_invalid_jsonb_returns_null() {
-        let json: Option<JsonB> = Spi::get_one::<JsonB>("SELECT logfmt_to_jsonb('=b');")
+    fn test_parsing_normal_logs_returns_null() {
+        let result: Option<JsonB> = Spi::get_one::<JsonB>("SELECT logfmt_to_jsonb('I, [2023-04-21T13:13:00.953378 #2] INFO -- : [FOOBAR] Reporting 2 metrics');")
             .expect("error fetching from database");
-        assert!(json.is_none())
+
+        assert!(result.is_none())
     }
 }
 

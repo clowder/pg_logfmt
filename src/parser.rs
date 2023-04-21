@@ -6,7 +6,7 @@ use nom::{
     character::complete::{none_of, one_of, space0},
     combinator::{eof, opt},
     multi::fold_many1,
-    sequence::{delimited, preceded, tuple},
+    sequence::{delimited, terminated, tuple},
     IResult,
 };
 
@@ -30,8 +30,8 @@ fn bare_value(input: &str) -> IResult<&str, String> {
 }
 
 fn pair(input: &str) -> IResult<&str, (String, Option<String>)> {
-    let key = take_while1(|c| c != '=' && c != ' ');
-    let value = preceded(tag("="), alt((quoted_value, bare_value)));
+    let key = terminated(take_while1(|c| c != '=' && c != ' '), tag("="));
+    let value = alt((quoted_value, bare_value));
     let (rest, (k, v)) = delimited(space0, tuple((key, opt(value))), space0)(input)?;
 
     Ok((rest, (k.to_string(), v)))
@@ -137,7 +137,8 @@ mod tests {
             parse("y=\\x")
         );
 
-        // this is considered garbage and produces nothing
+        // these produce nothing
+        assert_eq!(None, parse("y z"));
         assert_eq!(None, parse("=y"));
     }
 }
