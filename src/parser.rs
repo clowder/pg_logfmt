@@ -21,7 +21,7 @@ fn quoted_value(input: &str) -> IResult<&str, String> {
 }
 
 fn bare_value(input: &str) -> IResult<&str, String> {
-    let (rest, value) = take_while1(|c| c != ' ')(input)?;
+    let (rest, value) = take_while1(|c| !(c == ' ' || c == '\t' || c == '\r' || c == '\n'))(input)?;
 
     Ok((rest, value.to_string()))
 }
@@ -119,10 +119,18 @@ mod tests {
 
     #[test]
     fn test_edge_cases() {
-        // leading whitespace is discarded
+        // leading and trailing whitespace is discarded
         assert_eq!(
             Some(HashMap::from([pair("foo", Some("bar"))])),
             parse("  foo=bar")
+        );
+        assert_eq!(
+            Some(HashMap::from([pair("foo", Some("bar"))])),
+            parse("foo=bar ")
+        );
+        assert_eq!(
+            Some(HashMap::from([pair("foo", Some("bar"))])),
+            parse("foo=bar\n")
         );
 
         // unicode works as expected
@@ -133,9 +141,7 @@ mod tests {
 
         // blank values are `None` unless they're quoted strings
         assert_eq!(Some(HashMap::from([pair("x", None)])), parse("x= "));
-
         assert_eq!(Some(HashMap::from([pair("y", None)])), parse("y="));
-
         assert_eq!(Some(HashMap::from([pair("y", Some(""))])), parse("y=\"\""));
 
         // double escaped quotes are left in tact
