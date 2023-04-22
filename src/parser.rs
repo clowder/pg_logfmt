@@ -17,10 +17,7 @@ fn quoted_value(input: &str) -> IResult<&str, String> {
         alt((tag("\""), eof)),
     )(input)?;
 
-    match value {
-        Some(value) => Ok((rest, value)),
-        None => Ok((rest, String::new())),
-    }
+    Ok((rest, value.unwrap_or_default()))
 }
 
 fn bare_value(input: &str) -> IResult<&str, String> {
