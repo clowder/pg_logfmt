@@ -1,9 +1,9 @@
 use crate::parser::parse;
-use pgx::prelude::*;
-use pgx::JsonB;
+use pgrx::prelude::*;
+use pgrx::JsonB;
 use serde_json::json;
 
-pgx::pg_module_magic!();
+pgrx::pg_module_magic!();
 
 pub mod parser;
 
@@ -17,8 +17,8 @@ fn logfmt_to_jsonb(value: &str) -> Option<JsonB> {
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_schema]
 mod tests {
-    use pgx::prelude::*;
-    use pgx::JsonB;
+    use pgrx::prelude::*;
+    use pgrx::JsonB;
     use std::collections::HashMap;
 
     fn pair(key: &str, val: Option<&str>) -> (String, Option<String>) {
@@ -59,7 +59,7 @@ mod tests {
     }
 }
 
-/// This module is required by `cargo pgx test` invocations.
+/// This module is required by `cargo pgrx test` invocations.
 /// It must be visible at the root of your extension crate.
 #[cfg(test)]
 pub mod pg_test {
