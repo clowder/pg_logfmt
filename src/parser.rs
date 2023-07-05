@@ -26,26 +26,26 @@ fn bare_value(input: &str) -> IResult<&str, String> {
     Ok((rest, value.to_string()))
 }
 
-fn pair(input: &str) -> IResult<&str, (String, Option<String>)> {
+fn pair(input: &str) -> IResult<&str, (&str, Option<String>)> {
     let key = terminated(take_while1(|c| c != '=' && c != ' '), tag("="));
     let value = alt((quoted_value, bare_value));
     let (rest, (k, v)) = delimited(space0, tuple((key, opt(value))), space0)(input)?;
 
-    Ok((rest, (k.to_string(), v)))
+    Ok((rest, (k, v)))
 }
 
-fn pairs(input: &str) -> IResult<&str, HashMap<String, Option<String>>> {
+fn pairs(input: &str) -> IResult<&str, HashMap<&str, Option<String>>> {
     fold_many1(
         pair,
         HashMap::new,
-        |mut acc: HashMap<String, Option<String>>, (key, value)| {
+        |mut acc: HashMap<&str, Option<String>>, (key, value)| {
             acc.insert(key, value);
             acc
         },
     )(input)
 }
 
-pub fn parse(message: &str) -> Option<HashMap<String, Option<String>>> {
+pub fn parse(message: &str) -> Option<HashMap<&str, Option<String>>> {
     tuple((many_till(anychar, peek(pair)), pairs))(message)
         .map(|(_rest, (_garbage, result))| result)
         .ok()
@@ -55,10 +55,10 @@ pub fn parse(message: &str) -> Option<HashMap<String, Option<String>>> {
 mod tests {
     use crate::parser::*;
 
-    fn pair(key: &str, val: Option<&str>) -> (String, Option<String>) {
+    fn pair<'a>(key: &'a str, val: Option<&str>) -> (&'a str, Option<String>) {
         match val {
-            Some(v) => (key.to_string(), Some(v.to_string())),
-            None => (key.to_string(), None),
+            Some(v) => (key, Some(v.to_string())),
+            None => (key, None),
         }
     }
 
