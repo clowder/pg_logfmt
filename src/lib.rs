@@ -1,7 +1,7 @@
 use crate::parser::parse;
 use pgrx::prelude::*;
 use pgrx::JsonB;
-use serde_json::json;
+use serde_json::{Map, Value};
 
 pgrx::pg_module_magic!();
 
@@ -11,7 +11,13 @@ pub mod parser;
 fn logfmt_to_jsonb(value: &str) -> Option<JsonB> {
     let parsed = parse(value);
 
-    parsed.map(|v| JsonB(json!(v)))
+    parsed.map(|v| {
+        let map = v.into_iter().fold(Map::new(), |mut acc, (key, value)| {
+            acc.insert(key.to_string(), Value::from(value));
+            acc
+        });
+        JsonB(serde_json::Value::Object(map))
+    })
 }
 
 #[cfg(any(test, feature = "pg_test"))]

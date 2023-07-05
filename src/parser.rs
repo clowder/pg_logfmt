@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-
 use nom::{
     branch::alt,
     bytes::complete::{escaped_transform, tag, take_while1},
     character::complete::{anychar, none_of, one_of, space0},
     combinator::{eof, opt, peek},
-    multi::{fold_many1, many_till},
+    multi::{many0, many_till},
     sequence::{delimited, terminated, tuple},
     IResult,
 };
@@ -34,18 +32,11 @@ fn pair(input: &str) -> IResult<&str, (&str, Option<String>)> {
     Ok((rest, (k, v)))
 }
 
-fn pairs(input: &str) -> IResult<&str, HashMap<&str, Option<String>>> {
-    fold_many1(
-        pair,
-        HashMap::new,
-        |mut acc: HashMap<&str, Option<String>>, (key, value)| {
-            acc.insert(key, value);
-            acc
-        },
-    )(input)
+fn pairs(input: &str) -> IResult<&str, Vec<(&str, Option<String>)>> {
+    many0(pair)(input)
 }
 
-pub fn parse(message: &str) -> Option<HashMap<&str, Option<String>>> {
+pub fn parse(message: &str) -> Option<Vec<(&str, Option<String>)>> {
     tuple((many_till(anychar, peek(pair)), pairs))(message)
         .map(|(_rest, (_garbage, result))| result)
         .ok()
@@ -65,13 +56,13 @@ mod tests {
     #[test]
     fn test_heroku_metrics_lines() {
         assert_eq!(
-            Some(HashMap::from([
+            Some(vec![
                 pair("source", Some("web.1")),
                 pair("dyno", Some("heroku.238235071.aa92a0d0-09a3-4b15-a717-a2821dd241f7")),
                 pair("sample#load_avg_1m", Some("0.57")),
                 pair("sample#load_avg_5m", Some("0.16")),
                 pair("sample#load_avg_15m", Some("0.07"))
-            ])),
+            ]),
             parse("source=web.1 dyno=heroku.238235071.aa92a0d0-09a3-4b15-a717-a2821dd241f7 sample#load_avg_1m=0.57 sample#load_avg_5m=0.16 sample#load_avg_15m=0.07")
         );
     }
@@ -79,7 +70,7 @@ mod tests {
     #[test]
     fn test_lograge_lines() {
         assert_eq!(
-            Some(HashMap::from([
+            Some(vec![
                 pair("at", Some("info")),
                 pair("method", Some("POST")),
                 pair("path", Some("/foo/bar")),
@@ -92,7 +83,7 @@ mod tests {
                 pair("status", Some("204")),
                 pair("bytes", Some("490")),
                 pair("protocol", Some("http")),
-            ])),
+            ]),
             parse("at=info method=POST path=\"/foo/bar\" host=example.com request_id=f116113c-b8ed-41ea-bbf3-a031313dd936 fwd=\"0.0.0.0\" dyno=web.1 connect=0ms service=25ms status=204 bytes=490 protocol=http")
         );
     }
@@ -100,7 +91,7 @@ mod tests {
     #[test]
     fn test_lograge_lines_with_rails_tagged_prefix() {
         assert_eq!(
-            Some(HashMap::from([
+            Some(vec![
                 pair("at", Some("info")),
                 pair("method", Some("POST")),
                 pair("path", Some("/foo/bar")),
@@ -112,7 +103,7 @@ mod tests {
                 pair("status", Some("204")),
                 pair("bytes", Some("490")),
                 pair("protocol", Some("http")),
-            ])),
+            ]),
             parse("I, [2022-08-05T15:55:06.335844 #56]  INFO -- : [242dc622-3727-4e5e-ac6e-fcf121a1a532] at=info method=POST path=\"/foo/bar\" host=example.com fwd=\"0.0.0.0\" dyno=web.1 connect=0ms service=25ms status=204 bytes=490 protocol=http")
         );
     }
@@ -120,47 +111,29 @@ mod tests {
     #[test]
     fn test_edge_cases() {
         // leading and trailing whitespace is discarded
-        assert_eq!(
-            Some(HashMap::from([pair("foo", Some("bar"))])),
-            parse("  foo=bar")
-        );
-        assert_eq!(
-            Some(HashMap::from([pair("foo", Some("bar"))])),
-            parse("foo=bar ")
-        );
-        assert_eq!(
-            Some(HashMap::from([pair("foo", Some("bar"))])),
-            parse("foo=bar\n")
-        );
+        assert_eq!(Some(vec![pair("foo", Some("bar"))]), parse("  foo=bar"));
+        assert_eq!(Some(vec![pair("foo", Some("bar"))]), parse("foo=bar "));
+        assert_eq!(Some(vec![pair("foo", Some("bar"))]), parse("foo=bar\n"));
 
         // unicode works as expected
-        assert_eq!(
-            Some(HashMap::from([pair("ƒ", Some("2h3s"))])),
-            parse("ƒ=2h3s")
-        );
+        assert_eq!(Some(vec![pair("ƒ", Some("2h3s"))]), parse("ƒ=2h3s"));
 
         // blank values are `None` unless they're quoted strings
-        assert_eq!(Some(HashMap::from([pair("x", None)])), parse("x= "));
-        assert_eq!(Some(HashMap::from([pair("y", None)])), parse("y="));
-        assert_eq!(Some(HashMap::from([pair("y", Some(""))])), parse("y=\"\""));
+        assert_eq!(Some(vec![pair("x", None)]), parse("x= "));
+        assert_eq!(Some(vec![pair("y", None)]), parse("y="));
+        assert_eq!(Some(vec![pair("y", Some(""))]), parse("y=\"\""));
 
         // double escaped quotes are left in tact
         assert_eq!(
-            Some(HashMap::from([pair("y", Some("f(\"x\")"))])),
+            Some(vec![pair("y", Some("f(\"x\")"))]),
             parse("y=\"f(\\\"x\\\")\"")
         );
 
         // missing closing quote consumes to eof
-        assert_eq!(
-            Some(HashMap::from([pair("y", Some(" a=b"))])),
-            parse("y=\" a=b")
-        );
+        assert_eq!(Some(vec![pair("y", Some(" a=b"))]), parse("y=\" a=b"));
 
         // unknown escapes just get written to value
-        assert_eq!(
-            Some(HashMap::from([pair("y", Some("\\x"))])),
-            parse("y=\\x")
-        );
+        assert_eq!(Some(vec![pair("y", Some("\\x"))]), parse("y=\\x"));
 
         // these produce nothing
         assert_eq!(None, parse("y z"));
