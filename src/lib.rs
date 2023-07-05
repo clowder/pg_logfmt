@@ -2,12 +2,13 @@ use crate::parser::parse;
 use pgrx::prelude::*;
 use pgrx::JsonB;
 use serde_json::{Map, Value};
+use std::iter;
 
 pgrx::pg_module_magic!();
 
 pub mod parser;
 
-#[pg_extern]
+#[pg_extern(immutable)]
 fn logfmt_to_jsonb(value: &str) -> Option<JsonB> {
     let parsed = parse(value);
 
@@ -18,6 +19,22 @@ fn logfmt_to_jsonb(value: &str) -> Option<JsonB> {
         });
         JsonB(serde_json::Value::Object(map))
     })
+}
+
+#[pg_extern(immutable)]
+fn logfmt_keys<'a>(value: &'a str) -> SetOfIterator<'a, &'a str> {
+    match parse(value) {
+        Some(v) => SetOfIterator::new(v.into_iter().map(|(key, _value)| key)),
+        None => SetOfIterator::new(iter::empty::<&str>()),
+    }
+}
+
+#[pg_extern(immutable)]
+fn logfmt_keys_array<'a>(value: &'a str) -> Option<Vec<&'a str>> {
+    match parse(value) {
+        Some(v) => Some(v.into_iter().map(|(key, _value)| key).collect()),
+        None => None,
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -57,8 +74,66 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_parsing_normal_logs_returns_null() {
+    fn test_logfmt_to_jsonb_returns_null_for_normal_log_lines() {
         let result: Option<JsonB> = Spi::get_one::<JsonB>("SELECT logfmt_to_jsonb('I, [2023-04-21T13:13:00.953378 #2] INFO -- : [FOOBAR] Reporting 2 metrics');")
+            .expect("error fetching from database");
+
+        assert!(result.is_none())
+    }
+
+    #[pg_test]
+    fn test_logfmt_keys() {
+        Spi::connect(|client| {
+            let result = client.select("SELECT logfmt_keys('source=web.1 dyno=heroku.238235071.aa92a0d0-09a3-4b15-a717-a2821dd241f7 sample#load_avg_1m=0.57 sample#load_avg_5m=0.16 sample#load_avg_15m=0.07')", None, None).expect("error fetching from database");
+
+            assert_eq!(
+                vec![
+                    "source",
+                    "dyno",
+                    "sample#load_avg_1m",
+                    "sample#load_avg_5m",
+                    "sample#load_avg_15m",
+                ],
+                result
+                    .into_iter()
+                    .map(|x| x
+                        .get_by_name::<String, &str>("logfmt_keys")
+                        .expect("error fetching datum")
+                        .expect("datum was NULL"))
+                    .collect::<Vec<String>>()
+            );
+        });
+    }
+
+    #[pg_test]
+    fn test_logfmt_keys_returns_nothing_for_normal_log_lines() {
+        Spi::connect(|client| {
+            let result = client.select("SELECT logfmt_keys('I, [2023-04-21T13:13:00.953378 #2] INFO -- : [FOOBAR] Reporting 2 metrics');", None, None).expect("error fetching from database");
+
+            assert_eq!(0, result.len());
+        });
+    }
+
+    #[pg_test]
+    fn test_logfmt_keys_array() {
+        let result = Spi::get_one::<Vec<String>>("SELECT logfmt_keys_array('source=web.1 dyno=heroku.238235071.aa92a0d0-09a3-4b15-a717-a2821dd241f7 sample#load_avg_1m=0.57 sample#load_avg_5m=0.16 sample#load_avg_15m=0.07');").expect("error fetching from database");
+        let keys = result.expect("database returned `NULL`");
+
+        assert_eq!(
+            vec![
+                "source",
+                "dyno",
+                "sample#load_avg_1m",
+                "sample#load_avg_5m",
+                "sample#load_avg_15m",
+            ],
+            keys
+        );
+    }
+
+    #[pg_test]
+    fn test_logfmt_keys_array_returns_null_for_normal_log_lines() {
+        let result = Spi::get_one::<Vec<String>>("SELECT logfmt_keys_array('I, [2023-04-21T13:13:00.953378 #2] INFO -- : [FOOBAR] Reporting 2 metrics');")
             .expect("error fetching from database");
 
         assert!(result.is_none())
