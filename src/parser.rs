@@ -1,30 +1,30 @@
 use nom::{
     branch::alt,
-    bytes::complete::{escaped_transform, tag, take_while1},
+    bytes::complete::{escaped, tag, take_while1},
     character::complete::{anychar, none_of, one_of, space0},
     combinator::{eof, opt, peek},
     multi::{many0, many_till},
-    sequence::{delimited, terminated, tuple},
+    sequence::{delimited, preceded, terminated, tuple},
     IResult,
 };
 
-fn quoted_value(input: &str) -> IResult<&str, String> {
+fn quoted_value(input: &str) -> IResult<&str, &str> {
     let (rest, value) = delimited(
         tag("\""),
-        opt(escaped_transform(none_of("\"\\"), '\\', one_of("\"\\"))),
+        opt(escaped(none_of("\"\\"), '\\', one_of("\"\\"))),
         alt((tag("\""), eof)),
     )(input)?;
 
     Ok((rest, value.unwrap_or_default()))
 }
 
-fn bare_value(input: &str) -> IResult<&str, String> {
+fn bare_value(input: &str) -> IResult<&str, &str> {
     let (rest, value) = take_while1(|c| !(c == ' ' || c == '\t' || c == '\r' || c == '\n'))(input)?;
 
-    Ok((rest, value.to_string()))
+    Ok((rest, value))
 }
 
-fn pair(input: &str) -> IResult<&str, (&str, Option<String>)> {
+fn pair(input: &str) -> IResult<&str, (&str, Option<&str>)> {
     let key = terminated(take_while1(|c| c != '=' && c != ' '), tag("="));
     let value = alt((quoted_value, bare_value));
     let (rest, (k, v)) = delimited(space0, tuple((key, opt(value))), space0)(input)?;
@@ -32,13 +32,13 @@ fn pair(input: &str) -> IResult<&str, (&str, Option<String>)> {
     Ok((rest, (k, v)))
 }
 
-fn pairs(input: &str) -> IResult<&str, Vec<(&str, Option<String>)>> {
+fn pairs(input: &str) -> IResult<&str, Vec<(&str, Option<&str>)>> {
     many0(pair)(input)
 }
 
-pub fn parse(message: &str) -> Option<Vec<(&str, Option<String>)>> {
-    tuple((many_till(anychar, peek(pair)), pairs))(message)
-        .map(|(_rest, (_garbage, result))| result)
+pub fn parse(message: &str) -> Option<Vec<(&str, Option<&str>)>> {
+    preceded(many_till(anychar, peek(pair)), pairs)(message)
+        .map(|(_rest, result)| result)
         .ok()
 }
 
@@ -46,9 +46,9 @@ pub fn parse(message: &str) -> Option<Vec<(&str, Option<String>)>> {
 mod tests {
     use crate::parser::*;
 
-    fn pair<'a>(key: &'a str, val: Option<&str>) -> (&'a str, Option<String>) {
+    fn pair<'a>(key: &'a str, val: Option<&'a str>) -> (&'a str, Option<&'a str>) {
         match val {
-            Some(v) => (key, Some(v.to_string())),
+            Some(v) => (key, Some(v)),
             None => (key, None),
         }
     }
@@ -125,7 +125,7 @@ mod tests {
 
         // double escaped quotes are left in tact
         assert_eq!(
-            Some(vec![pair("y", Some("f(\"x\")"))]),
+            Some(vec![pair("y", Some("f(\\\"x\\\")"))]),
             parse("y=\"f(\\\"x\\\")\"")
         );
 

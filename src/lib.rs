@@ -14,7 +14,10 @@ fn logfmt_to_jsonb(value: &str) -> Option<JsonB> {
 
     parsed.map(|v| {
         let map = v.into_iter().fold(Map::new(), |mut acc, (key, value)| {
-            acc.insert(key.to_string(), Value::from(value));
+            acc.insert(
+                key.to_string(),
+                Value::from(value.map(|v| v.replace("\\\"", "\""))),
+            );
             acc
         });
         JsonB(serde_json::Value::Object(map))
@@ -79,6 +82,18 @@ mod tests {
             .expect("error fetching from database");
 
         assert!(result.is_none())
+    }
+
+    #[pg_test]
+    fn test_logfmt_to_jsonb_unescapes_double_escaped_quotes() {
+        let result: Option<JsonB> =
+            Spi::get_one::<JsonB>("SELECT logfmt_to_jsonb('y=\"f(\\\"x\\\")\"')")
+                .expect("error fetching from database");
+        let json: JsonB = result.expect("database returned `NULL`");
+        let parsed: HashMap<String, Option<String>> =
+            serde_json::from_value(json.0).expect("error interpreting data");
+
+        assert_eq!(HashMap::from([pair("y", Some("f(\"x\")")),]), parsed);
     }
 
     #[pg_test]
