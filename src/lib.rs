@@ -8,7 +8,7 @@ pgrx::pg_module_magic!();
 
 pub mod parser;
 
-#[pg_extern(immutable)]
+#[pg_extern(immutable, parallel_safe)]
 fn logfmt_to_jsonb(value: &str) -> Option<JsonB> {
     let parsed = parse(value);
 
@@ -21,7 +21,7 @@ fn logfmt_to_jsonb(value: &str) -> Option<JsonB> {
     })
 }
 
-#[pg_extern(immutable)]
+#[pg_extern(immutable, parallel_safe)]
 fn logfmt_keys<'a>(value: &'a str) -> SetOfIterator<'a, &'a str> {
     match parse(value) {
         Some(v) => SetOfIterator::new(v.into_iter().map(|(key, _value)| key)),
@@ -29,7 +29,7 @@ fn logfmt_keys<'a>(value: &'a str) -> SetOfIterator<'a, &'a str> {
     }
 }
 
-#[pg_extern(immutable)]
+#[pg_extern(immutable, parallel_safe)]
 fn logfmt_keys_array<'a>(value: &'a str) -> Option<Vec<&'a str>> {
     match parse(value) {
         Some(v) => Some(v.into_iter().map(|(key, _value)| key).collect()),
