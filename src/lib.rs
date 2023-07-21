@@ -23,36 +23,21 @@ unsafe fn logfmt_to_record(
     let parsed = parse(value);
 
     match parsed {
-        Some(v) => {
+        Some(parsed) => {
             let mut tuple_desc = std::ptr::null_mut();
             pg_sys::get_call_result_type(fcinfo, std::ptr::null_mut(), &mut tuple_desc);
             pg_sys::BlessTupleDesc(tuple_desc);
 
-            let natts: usize = (*tuple_desc).natts as usize;
-            let mut datums = Vec::<Option<pg_sys::Datum>>::with_capacity(natts);
+            let nattrs: usize = (*tuple_desc).natts as usize;
+            let mut datums = Vec::<Option<pg_sys::Datum>>::with_capacity(nattrs);
 
-            let attrs = (*tuple_desc).attrs.as_slice(natts);
+            for attr in (*tuple_desc).attrs.as_slice(nattrs).iter() {
+                let datum: Option<pg_sys::Datum> = parsed
+                    .iter()
+                    .find(|(k, _v)| k == &attr.name())
+                    .map(|(_k, v)| v.into_datum().unwrap());
 
-            for attrno in 0..(natts) {
-                let attr = attrs[attrno];
-                println!("{:?}", attr.name());
-
-                match v.iter().find(|(k, _v)| k == &attr.name()).map(|(_k, v)| v) {
-                    Some(v) => match v {
-                        Some(v) => {
-                            datums.push(v.into_datum());
-                            ()
-                        }
-                        None => {
-                            datums.push(None);
-                            ()
-                        }
-                    },
-                    None => {
-                        datums.push(None);
-                        ()
-                    }
-                };
+                datums.push(datum)
             }
 
             PgHeapTuple::from_datums(PgTupleDesc::from_pg(tuple_desc), datums).ok()
