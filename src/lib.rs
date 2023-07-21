@@ -108,7 +108,7 @@ fn logfmt_keys_array<'a>(value: &'a str) -> Option<Vec<&'a str>> {
 #[pg_schema]
 mod tests {
     use pgrx::prelude::*;
-    use pgrx::JsonB;
+    use pgrx::{AnyNumeric, JsonB};
     use std::collections::HashMap;
 
     fn pair(key: &str, val: Option<&str>) -> (String, Option<String>) {
@@ -120,17 +120,13 @@ mod tests {
 
     #[pg_test]
     fn test_logfmt_to_record() {
-        let (source, sample, missing) = Spi::get_three::<String, String, String>(r#"
-            with foo as (
-                SELECT source, "sample#load_avg_1m" as sample, missing
-                FROM logfmt_to_record('source=web.1 sample#load_avg_1m=0.57')AS x(source text, "sample#load_avg_1m" text, missing text)
-            )
-
-            select source, cast(sample  as numeric) as sample, missing from foo;
+        let (source, sample, missing) = Spi::get_three::<String, AnyNumeric, String>(r#"
+            SELECT source, "sample#load_avg_1m"::numeric as sample, missing
+            FROM logfmt_to_record('source=web.1 sample#load_avg_1m=0.57')AS x(source text, "sample#load_avg_1m" text, missing text)
         "#).expect("error fetching from database");
 
         assert_eq!(Some("web.1".to_string()), source);
-        assert_eq!(Some("0.57".to_string()), sample);
+        assert_eq!(AnyNumeric::try_from(0.57).ok(), sample);
         assert_eq!(None, missing);
     }
 
