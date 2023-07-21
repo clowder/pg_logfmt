@@ -1,12 +1,69 @@
 use crate::parser::parse;
 use pgrx::prelude::*;
 use pgrx::JsonB;
+use pgrx::AnyElement;
 use serde_json::{Map, Value};
 use std::iter;
 
 pgrx::pg_module_magic!();
 
 pub mod parser;
+
+#[pg_extern(sql = r#"
+CREATE FUNCTION "logfmt_to_record"(
+    "value" TEXT
+) RETURNS RECORD
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c
+AS '@MODULE_PATHNAME@', '@FUNCTION_NAME@';
+"#)]
+unsafe fn logfmt_to_record(fcinfo: pg_sys::FunctionCallInfo) -> Option<pg_sys::Datum> {
+    // Might not be possible!
+    // `TableIterator` has something close, specifically the use of `get_call_result_type` to
+    // identify the return type.
+    // https://github.com/pgcentralfoundation/pgrx/blob/9cdddf87aac61cdb75cf023afd046ddfe3f1a52d/pgrx/src/srf.rs#L98
+    //
+    // We'd need to morph that into something like this:
+    // https://github.com/postgres/postgres/blob/d65ddaca93f6f31e76b15bc1001f5cabb6a46c9d/src/backend/utils/adt/jsonfuncs.c#L3263
+    //
+    //
+    // psudeo
+    //
+    // type = get_call_result_type
+    // return = new tuple
+    // for col in type.cols
+    //   return[col] = parsed[col]
+    // end
+    // return
+    //
+    // Postgres's offical docs:
+    // https://www.postgresql.org/docs/9.5/xfunc-c.html#AEN58271
+
+    let mut tupdesc: *mut pg_sys::TupleDescData = std::ptr::null_mut();
+    pg_sys::get_call_result_type(fcinfo, std::ptr::null_mut(), &mut tupdesc)
+    pg_sys::BlessTupleDesc(tupdesc);
+
+    println!("{:#?}", (*tupdesc).attrs.as_slice((*tupdesc).natts as usize));
+
+
+    // heap_form_tuple "tuple from desc"
+
+    //
+    //    let heap_tuple_data =
+    //        pg_sys::heap_form_tuple(tuple_desc.as_ptr(), std::ptr::null_mut(), is_null.as_mut_ptr());
+
+    //    let heap_tuple = PgHeapTuple::from_heap_tuple(
+    //        tuple_desc,
+    //        heap_tuple_data,
+    //    );
+    //
+
+    // HeapTupleGetDatum "convert tuple to datum" -> return this
+
+    // heap_tuple = heap_tuple.into_datum
+
+    None
+}
 
 #[pg_extern(immutable, parallel_safe)]
 fn logfmt_to_jsonb(value: &str) -> Option<JsonB> {
@@ -44,7 +101,7 @@ fn logfmt_keys_array<'a>(value: &'a str) -> Option<Vec<&'a str>> {
 #[pg_schema]
 mod tests {
     use pgrx::prelude::*;
-    use pgrx::JsonB;
+    use pgrx::{AnyElement, JsonB};
     use std::collections::HashMap;
 
     fn pair(key: &str, val: Option<&str>) -> (String, Option<String>) {
@@ -52,6 +109,12 @@ mod tests {
             Some(v) => (key.to_string(), Some(v.to_string())),
             None => (key.to_string(), None),
         }
+    }
+
+    #[pg_test]
+    fn test_logfmt_to_record() {
+        let result: Option<AnyElement> = Spi::get_one::<AnyElement>("SELECT * FROM logfmt_to_record('source=web.1') as x(source text, money text);").expect("error fetching from database");
+
     }
 
     #[pg_test]
