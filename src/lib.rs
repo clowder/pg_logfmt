@@ -1,7 +1,6 @@
 use crate::parser::parse;
 use pgrx::prelude::*;
 use pgrx::JsonB;
-use pgrx::AnyElement;
 use serde_json::{Map, Value};
 use std::iter;
 
@@ -17,52 +16,60 @@ IMMUTABLE STRICT PARALLEL SAFE
 LANGUAGE c
 AS '@MODULE_PATHNAME@', '@FUNCTION_NAME@';
 "#)]
-unsafe fn logfmt_to_record(fcinfo: pg_sys::FunctionCallInfo) -> Option<pg_sys::Datum> {
-    // Might not be possible!
-    // `TableIterator` has something close, specifically the use of `get_call_result_type` to
-    // identify the return type.
-    // https://github.com/pgcentralfoundation/pgrx/blob/9cdddf87aac61cdb75cf023afd046ddfe3f1a52d/pgrx/src/srf.rs#L98
-    //
-    // We'd need to morph that into something like this:
-    // https://github.com/postgres/postgres/blob/d65ddaca93f6f31e76b15bc1001f5cabb6a46c9d/src/backend/utils/adt/jsonfuncs.c#L3263
-    //
-    //
-    // psudeo
-    //
-    // type = get_call_result_type
-    // return = new tuple
-    // for col in type.cols
-    //   return[col] = parsed[col]
-    // end
-    // return
-    //
-    // Postgres's offical docs:
-    // https://www.postgresql.org/docs/9.5/xfunc-c.html#AEN58271
+unsafe fn logfmt_to_record(value: &str, fcinfo: pg_sys::FunctionCallInfo) -> pg_sys::Datum {
+    let parsed = parse(value);
 
-    let mut tupdesc: *mut pg_sys::TupleDescData = std::ptr::null_mut();
-    pg_sys::get_call_result_type(fcinfo, std::ptr::null_mut(), &mut tupdesc)
-    pg_sys::BlessTupleDesc(tupdesc);
+    let mut tuple_desc = std::ptr::null_mut();
+    pg_sys::get_call_result_type(fcinfo, std::ptr::null_mut(), &mut tuple_desc);
+    pg_sys::BlessTupleDesc(tuple_desc);
 
-    println!("{:#?}", (*tupdesc).attrs.as_slice((*tupdesc).natts as usize));
+    let natts: usize = (*tuple_desc).natts as usize;
+    let mut datums = Vec::<pg_sys::Datum>::with_capacity(natts);
+    let mut is_null = vec![true; natts];
 
+    let attrs = (*tuple_desc).attrs.as_slice(natts);
+    println!("{}", natts);
 
-    // heap_form_tuple "tuple from desc"
+    match parsed {
+        Some(v) => {
+            for attrno in 0..(natts) {
+                let attr = attrs[attrno];
+                println!("{:?}", attr.name());
 
-    //
-    //    let heap_tuple_data =
-    //        pg_sys::heap_form_tuple(tuple_desc.as_ptr(), std::ptr::null_mut(), is_null.as_mut_ptr());
+                match v.iter().find(|(k, _v)| k == &attr.name()).map(|(_k, v)| v) {
+                    Some(v) => match v {
+                        Some(v) => {
+                            datums.push(v.into_datum().expect("it works"));
+                            is_null[attrno] = false;
 
-    //    let heap_tuple = PgHeapTuple::from_heap_tuple(
-    //        tuple_desc,
-    //        heap_tuple_data,
-    //    );
-    //
+                            ()
+                        }
+                        None => {
+                            println!("NULL for: {:?}", attr.name());
+                            datums.push(0.into());
+                            ()
+                        }
+                    },
+                    None => {
+                        println!("No match found for: {:?}", attr.name());
+                        datums.push(0.into());
+                        ()
+                    }
+                };
+            }
 
-    // HeapTupleGetDatum "convert tuple to datum" -> return this
+            ()
+        }
+        None => {
+            println!("Not logfmt");
+            ()
+        }
+    }
 
-    // heap_tuple = heap_tuple.into_datum
-
-    None
+    pg_sys::heap_copy_tuple_as_datum(
+        pg_sys::heap_form_tuple(tuple_desc, datums.as_mut_ptr(), is_null.as_mut_ptr()),
+        tuple_desc,
+    )
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -101,7 +108,7 @@ fn logfmt_keys_array<'a>(value: &'a str) -> Option<Vec<&'a str>> {
 #[pg_schema]
 mod tests {
     use pgrx::prelude::*;
-    use pgrx::{AnyElement, JsonB};
+    use pgrx::JsonB;
     use std::collections::HashMap;
 
     fn pair(key: &str, val: Option<&str>) -> (String, Option<String>) {
@@ -113,8 +120,18 @@ mod tests {
 
     #[pg_test]
     fn test_logfmt_to_record() {
-        let result: Option<AnyElement> = Spi::get_one::<AnyElement>("SELECT * FROM logfmt_to_record('source=web.1') as x(source text, money text);").expect("error fetching from database");
+        let (source, sample, missing) = Spi::get_three::<String, String, String>(r#"
+            with foo as (
+                SELECT source, "sample#load_avg_1m" as sample, missing
+                FROM logfmt_to_record('source=web.1 sample#load_avg_1m=0.57')AS x(source text, "sample#load_avg_1m" text, missing text)
+            )
 
+            select source, cast(sample  as numeric) as sample, missing from foo;
+        "#).expect("error fetching from database");
+
+        assert_eq!(Some("web.1".to_string()), source);
+        assert_eq!(Some("0.57".to_string()), sample);
+        assert_eq!(None, missing);
     }
 
     #[pg_test]
