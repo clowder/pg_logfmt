@@ -1,6 +1,6 @@
 use crate::parser::parse;
 use pgrx::prelude::*;
-use pgrx::JsonB;
+use pgrx::{JsonB, PgTupleDesc};
 use serde_json::{Map, Value};
 use std::iter;
 
@@ -16,22 +16,23 @@ IMMUTABLE STRICT PARALLEL SAFE
 LANGUAGE c
 AS '@MODULE_PATHNAME@', '@FUNCTION_NAME@';
 "#)]
-unsafe fn logfmt_to_record(value: &str, fcinfo: pg_sys::FunctionCallInfo) -> pg_sys::Datum {
+unsafe fn logfmt_to_record(
+    value: &str,
+    fcinfo: pg_sys::FunctionCallInfo,
+) -> Option<PgHeapTuple<AllocatedByRust>> {
     let parsed = parse(value);
-
-    let mut tuple_desc = std::ptr::null_mut();
-    pg_sys::get_call_result_type(fcinfo, std::ptr::null_mut(), &mut tuple_desc);
-    pg_sys::BlessTupleDesc(tuple_desc);
-
-    let natts: usize = (*tuple_desc).natts as usize;
-    let mut datums = Vec::<pg_sys::Datum>::with_capacity(natts);
-    let mut is_null = vec![true; natts];
-
-    let attrs = (*tuple_desc).attrs.as_slice(natts);
-    println!("{}", natts);
 
     match parsed {
         Some(v) => {
+            let mut tuple_desc = std::ptr::null_mut();
+            pg_sys::get_call_result_type(fcinfo, std::ptr::null_mut(), &mut tuple_desc);
+            pg_sys::BlessTupleDesc(tuple_desc);
+
+            let natts: usize = (*tuple_desc).natts as usize;
+            let mut datums = Vec::<Option<pg_sys::Datum>>::with_capacity(natts);
+
+            let attrs = (*tuple_desc).attrs.as_slice(natts);
+
             for attrno in 0..(natts) {
                 let attr = attrs[attrno];
                 println!("{:?}", attr.name());
@@ -39,37 +40,25 @@ unsafe fn logfmt_to_record(value: &str, fcinfo: pg_sys::FunctionCallInfo) -> pg_
                 match v.iter().find(|(k, _v)| k == &attr.name()).map(|(_k, v)| v) {
                     Some(v) => match v {
                         Some(v) => {
-                            datums.push(v.into_datum().expect("it works"));
-                            is_null[attrno] = false;
-
+                            datums.push(v.into_datum());
                             ()
                         }
                         None => {
-                            println!("NULL for: {:?}", attr.name());
-                            datums.push(0.into());
+                            datums.push(None);
                             ()
                         }
                     },
                     None => {
-                        println!("No match found for: {:?}", attr.name());
-                        datums.push(0.into());
+                        datums.push(None);
                         ()
                     }
                 };
             }
 
-            ()
+            PgHeapTuple::from_datums(PgTupleDesc::from_pg(tuple_desc), datums).ok()
         }
-        None => {
-            println!("Not logfmt");
-            ()
-        }
+        None => None,
     }
-
-    pg_sys::heap_copy_tuple_as_datum(
-        pg_sys::heap_form_tuple(tuple_desc, datums.as_mut_ptr(), is_null.as_mut_ptr()),
-        tuple_desc,
-    )
 }
 
 #[pg_extern(immutable, parallel_safe)]
